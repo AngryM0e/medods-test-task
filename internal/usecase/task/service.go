@@ -7,6 +7,7 @@ import (
 	"time"
 
 	taskdomain "example.com/taskservice/internal/domain/task"
+	"example.com/taskservice/internal/usecase/scheduler"
 )
 
 type Service struct {
@@ -68,11 +69,20 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (*tas
 		Description: normalized.Description,
 		Status:      normalized.Status,
 		UpdatedAt:   s.now(),
+		EndDate:     normalized.EndDate,
+		RepeatType:  normalized.RepeatType,
 	}
 
 	updated, err := s.repo.Update(ctx, model)
 	if err != nil {
 		return nil, err
+	}
+
+	if updated.Status == taskdomain.StatusDone && updated.RepeatType != "" {
+		err := s.handleRepeatingTask(ctx, updated)
+		if err != nil {
+			fmt.Printf("failed to create repeated task: %v\n", err)
+		}
 	}
 
 	return updated, nil
@@ -122,4 +132,41 @@ func validateUpdateInput(input UpdateInput) (UpdateInput, error) {
 	}
 
 	return input, nil
+}
+
+func (s *Service) handleRepeatingTask(ctx context.Context, task *taskdomain.Task) error {
+	var lastEndDate time.Time
+	// Find next start for next date
+	if task.EndDate != nil {
+		lastEndDate = *task.EndDate
+	} else {
+		lastEndDate = s.now()
+	}
+
+	// Calculate next date with scheduler
+	// Format date into 20060102 for NextDate()
+	nextDate, err := scheduler.NextDate(s.now(), lastEndDate.Format("20060102"), task.RepeatType)
+	if err != nil {
+		return err
+	}
+
+	// Parse into time.Time
+	nextEndDate, err := time.Parse("20060102", nextDate)
+	if err != nil {
+		return err
+	}
+
+	// Create new task
+	nextTask := &taskdomain.Task{
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      taskdomain.StatusNew,
+		CreatedAt:   s.now(),
+		UpdatedAt:   s.now(),
+		EndDate:     &nextEndDate,
+		RepeatType:  task.RepeatType,
+	}
+
+	_, err = s.repo.Create(ctx, nextTask)
+	return err
 }

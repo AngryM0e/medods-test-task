@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -27,10 +28,18 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	endDate, err := parseEndDate(req.EndDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	created, err := h.usecase.Create(r.Context(), taskusecase.CreateInput{
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      req.Status,
+		EndDate:     endDate,
+		RepeatType:  req.RepeatType,
 	})
 	if err != nil {
 		writeUsecaseError(w, err)
@@ -69,10 +78,18 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	endDate, err := parseEndDate(req.EndDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	updated, err := h.usecase.Update(r.Context(), id, taskusecase.UpdateInput{
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      req.Status,
+		EndDate:     endDate,
+		RepeatType:  req.RepeatType,
 	})
 	if err != nil {
 		writeUsecaseError(w, err)
@@ -163,4 +180,17 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func parseEndDate(date string) (*time.Time, error) {
+	if date == "" {
+		return nil, nil
+	}
+
+	parsed, err := time.Parse("20060102", date)
+	if err != nil {
+		return nil, ErrInvalidEndDateFormat
+	}
+
+	return &parsed, nil
 }
